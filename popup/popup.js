@@ -1,12 +1,14 @@
 // Popup: writes the chosen rate to chrome.storage.local and reports what the
 // active tab is doing. The content script in every Prime Video frame watches that
 // storage key, so the popup never has to talk to the page directly.
+const { MIN_RATE, MAX_RATE, RATE_STEP, DEFAULT_RATE, normalizeRate } = globalThis.PrimeVideoSpeedRate;
+
 const STORAGE_KEY = 'playbackRate';
-const MIN_RATE = 0.1;
-const MAX_RATE = 4.0;
-const DEFAULT_RATE = 1.0;
 const WRITE_DEBOUNCE_MS = 80;
 const PRIME_VIDEO_HOST = /(^|\.)primevideo\.com$/;
+// Injected together and in this order: content.js reads the shared range from the first
+// file, so it cannot be injected on its own.
+const CONTENT_SCRIPT_FILES = ['shared/rate.js', 'content.js'];
 
 const slider = document.getElementById('rate-slider');
 const readout = document.getElementById('rate-readout');
@@ -14,18 +16,12 @@ const status = document.getElementById('status');
 const presetButtons = Array.from(document.querySelectorAll('.preset'));
 
 let writeTimer = null;
+// The rate waiting to be written, or null when nothing is pending. Held outside the
+// timer so that flushWrite() can commit it from a teardown path.
+let pendingRate = null;
 // Rates this popup wrote itself, so the storage listener below can ignore the
 // echo instead of yanking the slider back while it is being dragged.
 const selfWrittenRates = new Set();
-
-/** Rounds to hundredths so the stored value never carries float noise. */
-function normalizeRate(value) {
-  const rate = Number(value);
-  if (!Number.isFinite(rate)) {
-    return DEFAULT_RATE;
-  }
-  return Math.round(Math.min(MAX_RATE, Math.max(MIN_RATE, rate)) * 100) / 100;
-}
 
 /** 1 -> "1.0", 1.25 -> "1.25" */
 function formatRate(rate) {
@@ -39,25 +35,76 @@ function setStatus(message, tone = 'info') {
 }
 
 function renderRate(rate) {
+  const label = `${formatRate(rate)}×`;
   slider.value = String(rate);
-  readout.textContent = `${formatRate(rate)}×`;
+  // Without this a screen reader announces the bare number from slider.value, which is
+  // the step-snapped one and carries no unit.
+  slider.setAttribute('aria-valuetext', label);
+  readout.textContent = label;
   for (const button of presetButtons) {
     button.setAttribute('aria-pressed', String(normalizeRate(button.dataset.rate) === rate));
   }
 }
 
-function storeRate(rate) {
+/**
+ * Commits the pending rate now.
+ *
+ * A popup document is destroyed the moment it loses focus, and a scheduled timer dies
+ * with it, so every teardown path has to come through here or the user's last change is
+ * silently dropped after the readout has already shown it. chrome.storage.local.set
+ * dispatches synchronously, so the write still lands even when the callback never runs.
+ */
+function flushWrite() {
+  if (pendingRate === null) {
+    return;
+  }
+
   clearTimeout(writeTimer);
-  writeTimer = setTimeout(() => {
-    selfWrittenRates.add(rate);
-    chrome.storage.local.set({ [STORAGE_KEY]: rate });
-  }, WRITE_DEBOUNCE_MS);
+  writeTimer = null;
+  const rate = pendingRate;
+  pendingRate = null;
+
+  selfWrittenRates.add(rate);
+  chrome.storage.local.set({ [STORAGE_KEY]: rate }, () => {
+    if (chrome.runtime.lastError) {
+      setStatus('Could not save the speed. Try again.', 'warn');
+    }
+  });
+}
+
+function storeRate(rate) {
+  pendingRate = rate;
+  clearTimeout(writeTimer);
+  writeTimer = setTimeout(flushWrite, WRITE_DEBOUNCE_MS);
 }
 
 function setRate(value) {
   const rate = normalizeRate(value);
   renderRate(rate);
   storeRate(rate);
+}
+
+/**
+ * Points the slider at the shared range, and checks that every preset can actually be
+ * represented on it. A preset that is not a whole number of steps above the minimum gets
+ * snapped by the browser, leaving the thumb somewhere other than the value in the
+ * readout and the value that was stored.
+ */
+function configureSlider() {
+  slider.min = String(MIN_RATE);
+  slider.max = String(MAX_RATE);
+  slider.step = String(RATE_STEP);
+
+  for (const button of presetButtons) {
+    const rate = normalizeRate(button.dataset.rate);
+    const steps = (rate - MIN_RATE) / RATE_STEP;
+    if (Math.abs(steps - Math.round(steps)) > 1e-6) {
+      console.warn(
+        `[Prime Video Speed Controller] preset ${rate}× is not a multiple of the ` +
+          `${RATE_STEP} step above ${MIN_RATE}, so the slider will snap away from it.`
+      );
+    }
+  }
 }
 
 /** Runs in the page: how many videos are here and what speed are they at? */
@@ -69,14 +116,14 @@ function inspectFrame() {
 async function reportActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-  let host = '';
+  let url = null;
   try {
-    host = new URL(tab?.url ?? '').hostname;
+    url = new URL(tab?.url ?? '');
   } catch (error) {
-    host = '';
+    url = null;
   }
 
-  if (!PRIME_VIDEO_HOST.test(host)) {
+  if (!url || url.protocol !== 'https:' || !PRIME_VIDEO_HOST.test(url.hostname)) {
     setStatus('Open a primevideo.com tab — the speed is saved and applied there.');
     return;
   }
@@ -87,7 +134,7 @@ async function reportActiveTab() {
     // harmless: content.js guards against it.
     await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
-      files: ['content.js'],
+      files: CONTENT_SCRIPT_FILES,
     });
 
     const results = await chrome.scripting.executeScript({
@@ -112,11 +159,26 @@ async function reportActiveTab() {
   }
 }
 
+configureSlider();
+
 slider.addEventListener('input', () => setRate(slider.value));
+// A committed drag or keyboard nudge does not need to wait out the debounce.
+slider.addEventListener('change', flushWrite);
 
 for (const button of presetButtons) {
-  button.addEventListener('click', () => setRate(button.dataset.rate));
+  button.addEventListener('click', () => {
+    setRate(button.dataset.rate);
+    flushWrite();
+  });
 }
+
+// Both paths a popup can disappear through, so a pending write is never lost.
+window.addEventListener('pagehide', flushWrite);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    flushWrite();
+  }
+});
 
 // Keep the popup in sync if another window's popup changed the rate.
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -131,6 +193,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 chrome.storage.local.get({ [STORAGE_KEY]: DEFAULT_RATE }, (stored) => {
+  if (chrome.runtime.lastError) {
+    renderRate(DEFAULT_RATE);
+    setStatus('Could not read the saved speed.', 'warn');
+    return;
+  }
   renderRate(normalizeRate(stored[STORAGE_KEY]));
   reportActiveTab();
 });

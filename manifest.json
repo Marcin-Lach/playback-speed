@@ -24,7 +24,7 @@
   "content_scripts": [
     {
       "matches": ["https://*.primevideo.com/*"],
-      "js": ["content.js"],
+      "js": ["shared/rate.js", "content.js"],
       "all_frames": true,
       "run_at": "document_idle"
     }

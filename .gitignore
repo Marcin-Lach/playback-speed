@@ -9,3 +9,6 @@ desktop.ini
 *.zip
 *.crx
 *.pem
+
+# Claude Code local settings (machine-specific paths and permission grants)
+.claude/settings.local.json
