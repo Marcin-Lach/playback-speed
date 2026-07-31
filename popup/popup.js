@@ -1,11 +1,13 @@
 // Popup: writes the chosen rate to chrome.storage.local and reports what the
-// active tab is doing. The content script in every Prime Video frame watches that
+// active tab is doing. The content script in every matching frame watches that
 // storage key, so the popup never has to talk to the page directly.
-const { MIN_RATE, MAX_RATE, RATE_STEP, DEFAULT_RATE, normalizeRate } = globalThis.PrimeVideoSpeedRate;
+const { MIN_RATE, MAX_RATE, RATE_STEP, DEFAULT_RATE, normalizeRate } = globalThis.PlaybackSpeedRate;
 
 const STORAGE_KEY = 'playbackRate';
 const WRITE_DEBOUNCE_MS = 80;
-const PRIME_VIDEO_HOST = /(^|\.)primevideo\.com$/;
+// Must stay in step with the host patterns declared in manifest.json: this only decides
+// whether the popup bothers to inject into the active tab and report on it.
+const SUPPORTED_HOST = /(^|\.)primevideo\.com$/;
 // Injected together and in this order: content.js reads the shared range from the first
 // file, so it cannot be injected on its own.
 const CONTENT_SCRIPT_FILES = ['shared/rate.js', 'content.js'];
@@ -100,7 +102,7 @@ function configureSlider() {
     const steps = (rate - MIN_RATE) / RATE_STEP;
     if (Math.abs(steps - Math.round(steps)) > 1e-6) {
       console.warn(
-        `[Prime Video Speed Controller] preset ${rate}× is not a multiple of the ` +
+        `[Playback Speed Slider] preset ${rate}× is not a multiple of the ` +
           `${RATE_STEP} step above ${MIN_RATE}, so the slider will snap away from it.`
       );
     }
@@ -123,8 +125,8 @@ async function reportActiveTab() {
     url = null;
   }
 
-  if (!url || url.protocol !== 'https:' || !PRIME_VIDEO_HOST.test(url.hostname)) {
-    setStatus('Open a primevideo.com tab — the speed is saved and applied there.');
+  if (!url || url.protocol !== 'https:' || !SUPPORTED_HOST.test(url.hostname)) {
+    setStatus('Open a supported video tab — the speed is saved and applied there.');
     return;
   }
 
@@ -155,7 +157,7 @@ async function reportActiveTab() {
     const label = count === 1 ? 'video' : 'videos';
     setStatus(`${count} ${label} on this tab, now playing at ${[...new Set(applied)].join(', ')}.`);
   } catch (error) {
-    setStatus('Could not reach this tab. Reload the Prime Video page and try again.', 'warn');
+    setStatus('Could not reach this tab. Reload the page and try again.', 'warn');
   }
 }
 

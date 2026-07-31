@@ -40,7 +40,7 @@
     return Math.round(clamped * 100) / 100;
   }
 
-  globalThis.PrimeVideoSpeedRate = {
+  globalThis.PlaybackSpeedRate = {
     MIN_RATE,
     MAX_RATE,
     RATE_STEP,

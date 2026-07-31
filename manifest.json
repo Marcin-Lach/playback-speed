@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Prime Video Speed Controller",
+  "name": "Playback Speed Slider",
   "version": "1.0.0",
-  "description": "Control Prime Video playback speed from 0.1x to 4.0x with a slider.",
+  "description": "Control video playback speed from 0.1x to 4.0x with a slider.",
   "permissions": ["storage", "scripting"],
   "host_permissions": ["https://*.primevideo.com/*"],
   "action": {
-    "default_title": "Prime Video Speed Controller",
+    "default_title": "Playback Speed Slider",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

@@ -5,9 +5,9 @@
 //
 // The single source of truth is chrome.storage.local, which means:
 //   * the popup only has to write the new value, and
-//   * every frame in every Prime Video tab picks it up through storage.onChanged.
+//   * every frame in every matching tab picks it up through storage.onChanged.
 (() => {
-  const ALREADY_LOADED_FLAG = '__primeVideoSpeedControllerLoaded';
+  const ALREADY_LOADED_FLAG = '__playbackSpeedSliderLoaded';
 
   // The popup re-injects this file to cover tabs that were already open when the
   // extension was installed or reloaded, so guard against running twice. The flag is
@@ -17,11 +17,11 @@
     return;
   }
 
-  const rateApi = globalThis.PrimeVideoSpeedRate;
+  const rateApi = globalThis.PlaybackSpeedRate;
   if (!rateApi) {
     // shared/rate.js is injected alongside this file; without it there is no range to
     // clamp against. Returning without claiming the flag leaves the retry open.
-    console.debug('[Prime Video Speed Controller] shared/rate.js is missing; not starting.');
+    console.debug('[Playback Speed Slider] shared/rate.js is missing; not starting.');
     return;
   }
   const { DEFAULT_RATE, normalizeRate } = rateApi;
@@ -40,7 +40,7 @@
   const WRITE_WINDOW_MS = 1000;
   const MAX_WRITES_PER_WINDOW = 20;
 
-  // Prime Video resets playbackRate whenever it swaps the media source: starting a
+  // The site's player resets playbackRate whenever it swaps the media source: starting a
   // title, resuming from an ad break, switching audio track, seeking across a
   // period boundary. Re-apply on all of those.
   const REAPPLY_EVENTS = [
@@ -74,7 +74,7 @@
       if (!budget.warned) {
         budget.warned = true;
         console.debug(
-          '[Prime Video Speed Controller] write budget for this video is used up for the ' +
+          '[Playback Speed Slider] write budget for this video is used up for the ' +
             'current second; backing off. Something else is competing for playbackRate.'
         );
       }
@@ -110,7 +110,7 @@
       // A detached or not-yet-initialised media element can throw; the next scan or
       // media event will pick it up again. Logged rather than swallowed so that a rate
       // which never applies is distinguishable from one that had nothing to do.
-      console.debug('[Prime Video Speed Controller] could not set the rate on a video:', error);
+      console.debug('[Playback Speed Slider] could not set the rate on a video:', error);
     }
   }
 
@@ -134,7 +134,7 @@
     }
   }
 
-  // The Prime Video DOM mutates constantly, so coalesce mutation bursts into one
+  // The player's DOM mutates constantly, so coalesce mutation bursts into one
   // scan per animation frame instead of querying on every callback.
   function scheduleScan() {
     if (scanScheduled || disposed) {
@@ -183,7 +183,7 @@
         }
         if (chrome.runtime.lastError) {
           console.debug(
-            '[Prime Video Speed Controller] could not read the stored rate:',
+            '[Playback Speed Slider] could not read the stored rate:',
             chrome.runtime.lastError.message
           );
           return;
@@ -197,7 +197,7 @@
         try {
           undo();
         } catch (undoError) {
-          console.debug('[Prime Video Speed Controller] cleanup failed:', undoError);
+          console.debug('[Playback Speed Slider] cleanup failed:', undoError);
         }
       }
       throw error;
@@ -213,7 +213,7 @@
     // Happens when the extension is reloaded and this frame's context is orphaned. The
     // freshly injected copy takes over, so there is nothing to recover here.
     console.debug(
-      '[Prime Video Speed Controller] start failed; will retry on the next injection:',
+      '[Playback Speed Slider] start failed; will retry on the next injection:',
       error
     );
   }

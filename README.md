@@ -1,9 +1,13 @@
-# Prime Video Speed Controller
+# Playback Speed Slider
 
-A small, unpacked Chrome extension that adds a playback speed slider to
-[primevideo.com](https://www.primevideo.com). Prime Video's own player has no speed control, so
-this sets `playbackRate` on the `<video>` element directly — the same trick as running a one-liner
-in DevTools, but packaged, persistent, and re-applied automatically when the player resets itself.
+A small, unpacked Chrome extension that adds a playback speed slider to a streaming site whose
+player offers no speed control of its own. It sets `playbackRate` on the `<video>` element
+directly — the same trick as running a one-liner in DevTools, but packaged, persistent, and
+re-applied automatically when the player resets itself.
+
+The sites it runs on are whatever host patterns are declared in
+[manifest.json](manifest.json) (`host_permissions` and the content script `matches`). Nothing
+outside those patterns is touched.
 
 It is meant for local, personal use and is not published on the Chrome Web Store.
 
@@ -11,17 +15,16 @@ It is meant for local, personal use and is not published on the Chrome Web Store
 
 - Slider from **0.1× to 4.0×** in 0.05 steps, with a live readout.
 - Preset buttons for the speeds you actually use: 0.5×, 1×, 1.25×, 1.5×, 1.75×, 2×, 2.5×, 3×.
-- The chosen speed is **remembered** and applied to every Prime Video tab, including new ones and
+- The chosen speed is **remembered** and applied to every matching tab, including new ones and
   the next title you start.
-- **Survives player resets.** Prime Video sets `playbackRate` back to 1 when it swaps the media
-  source (starting a title, coming back from an ad break, seeking across a stream boundary); the
-  extension notices and re-applies your speed.
+- **Survives player resets.** Players typically set `playbackRate` back to 1 when they swap the
+  media source (starting a title, coming back from an ad break, seeking across a stream
+  boundary); the extension notices and re-applies your speed.
 - Works when the player lives inside a same-origin iframe, because the content script is injected
   into all frames and each frame handles its own `<video>` elements.
-- No network access, no tracking, and no third-party code. The only host permission is
-  `https://*.primevideo.com/*`; besides that the extension asks for `storage` (to remember your
-  speed) and `scripting` (to reach tabs that were already open — see
-  [How it works](#how-it-works)).
+- No network access, no tracking, and no third-party code. Besides the host patterns in
+  `manifest.json`, the extension asks only for `storage` (to remember your speed) and `scripting`
+  (to reach tabs that were already open — see [How it works](#how-it-works)).
 
 ## Installation
 
@@ -29,7 +32,7 @@ It is meant for local, personal use and is not published on the Chrome Web Store
    this path on every start, so don't put it in a temp directory.
 
    ```bash
-   git clone <repo-url> primevideo-speed-controller
+   git clone <repo-url> playback-speed-slider
    ```
 
 2. Open `chrome://extensions` in Chrome.
@@ -38,7 +41,7 @@ It is meant for local, personal use and is not published on the Chrome Web Store
 5. The blue fast-forward icon appears in the toolbar. Click **Details → Pin** (or the puzzle-piece
    menu) if you want it permanently visible.
 
-That's it. Any Prime Video tab that was already open when you installed the extension is handled
+That's it. Any matching tab that was already open when you installed the extension is handled
 too — opening the popup injects the content script into it, so no reload is required.
 
 The same steps work in other Chromium browsers (Edge, Brave, Vivaldi) via their own
@@ -46,7 +49,7 @@ The same steps work in other Chromium browsers (Edge, Brave, Vivaldi) via their 
 
 ## Usage
 
-1. Start playing something on primevideo.com.
+1. Start playing something on a matching site.
 2. Click the extension icon.
 3. Drag the slider, or click a preset. The speed applies immediately — no reload, no reopening.
 
@@ -54,8 +57,8 @@ Notes:
 
 - With the slider focused, the **arrow keys** nudge the speed by 0.05 and **Home**/**End** jump to
   0.1× and 4.0×.
-- The speed is a single global setting, not per-tab: changing it affects every open Prime Video
-  tab and stays in effect until you change it back. To go back to normal, click the **1×** preset.
+- The speed is a single global setting, not per-tab: changing it affects every open matching tab
+  and stays in effect until you change it back. To go back to normal, click the **1×** preset.
 - Audio pitch is not corrected, so very high or very low speeds sound like a chipmunk or a
   slowed-down record. That is browser behaviour, not something the extension can fix.
 - Above roughly 3× the browser may drop audio entirely or stutter on high-bitrate streams; this
@@ -65,9 +68,9 @@ Notes:
 
 | File | Role |
 | --- | --- |
-| `manifest.json` | Manifest V3 declaration: content script for `*.primevideo.com`, popup, permissions. |
+| `manifest.json` | Manifest V3 declaration: host patterns, content script, popup, permissions. |
 | `shared/rate.js` | The rate range (min, max, step, default) and the `normalizeRate` clamp, defined once and used by both the popup and the content script. |
-| `content.js` | Injected into every Prime Video frame. Applies the stored rate to all `<video>` elements, tracks new ones with a `MutationObserver`, and re-applies on media events. |
+| `content.js` | Injected into every matching frame. Applies the stored rate to all `<video>` elements, tracks new ones with a `MutationObserver`, and re-applies on media events. |
 | `popup/popup.html` / `.css` / `.js` | The slider UI. Writes the chosen rate to `chrome.storage.local` and reports how many videos the active tab has. |
 | `icons/` | Toolbar icons at 16/32/48/128 px. |
 
@@ -92,11 +95,12 @@ instead of staying inert until the page is reloaded.
   best. Each `data-rate` must be a whole number of `RATE_STEP`s above `MIN_RATE`, or the browser
   snaps the slider thumb away from the value shown in the readout; the popup logs a console warning
   if a preset breaks that rule.
-- **Cover Amazon-hosted playback too**: video watched at `https://www.amazon.com/gp/video/...`
-  is a different origin. Add its pattern to both `host_permissions` and the content script
-  `matches` array in [manifest.json](manifest.json), for example
-  `"https://www.amazon.com/*"`, then reload the extension. Chrome will ask you to approve the new
-  host permission.
+- **Add or change the sites it runs on**: add the pattern to both `host_permissions` and the
+  content script `matches` array in [manifest.json](manifest.json), and add the matching hostname
+  to the `SUPPORTED_HOST` regex in [popup/popup.js](popup/popup.js) so the popup reports on those
+  tabs too. Then reload the extension; Chrome will ask you to approve the new host permission.
+  Note that playback on a different origin — even the same company's other domain — is a separate
+  host pattern.
 
 After editing any file, press the reload arrow on the extension's card in `chrome://extensions`.
 Changes to `content.js` only reach already-open tabs when you reopen the popup or reload the tab.
@@ -109,7 +113,7 @@ player page. Start a title; the speed applies on its own.
 
 **The popup says "Could not reach this tab."**
 Chrome refused to inject into the page — usually because the extension was reloaded while the tab
-stayed open. Reload the Prime Video tab.
+stayed open. Reload the tab.
 
 **Speed snaps back to 1× mid-playback.**
 The player replaced the media source and the re-apply didn't catch it. Reopen the popup and nudge
@@ -117,8 +121,15 @@ the slider. If it happens consistently at a particular moment, add the relevant 
 `REAPPLY_EVENTS` in [content.js](content.js).
 
 **Nothing happens at all.**
-Confirm the URL is on `primevideo.com` (not `amazon.com` — see *Customising*), that the extension
-is enabled on `chrome://extensions`, and that its card shows no errors.
+Confirm the tab's URL matches a pattern declared in [manifest.json](manifest.json), that the
+extension is enabled on `chrome://extensions`, and that its card shows no errors.
+
+## Disclaimer
+
+Not affiliated with, endorsed by, or sponsored by any streaming provider. Trademarks referenced in
+configuration are the property of their respective owners. The extension only changes the playback
+rate of a `<video>` element through the standard browser API; it does not touch digital rights
+management, download or redistribute content, or alter anything server-side.
 
 ## License
 
