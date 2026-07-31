@@ -10,6 +10,7 @@ The sites it runs on are whatever host patterns are declared in
 outside those patterns is touched.
 
 It is meant for local, personal use and is not published on the Chrome Web Store.
+Works only on Prime Video.
 
 ## Features
 
