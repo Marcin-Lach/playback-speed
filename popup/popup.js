@@ -7,7 +7,7 @@ const STORAGE_KEY = 'playbackRate';
 const WRITE_DEBOUNCE_MS = 80;
 // Must stay in step with the host patterns declared in manifest.json: this only decides
 // whether the popup bothers to inject into the active tab and report on it.
-const SUPPORTED_HOST = /(^|\.)primevideo\.com$/;
+const SUPPORTED_HOSTS = [/(^|\.)primevideo\.com$/, /(^|\.)disneyplus\.com$/];
 // Injected together and in this order: content.js reads the shared range from the first
 // file, so it cannot be injected on its own.
 const CONTENT_SCRIPT_FILES = ['shared/rate.js', 'content.js'];
@@ -125,7 +125,8 @@ async function reportActiveTab() {
     url = null;
   }
 
-  if (!url || url.protocol !== 'https:' || !SUPPORTED_HOST.test(url.hostname)) {
+  const hostIsSupported = url && SUPPORTED_HOSTS.some((pattern) => pattern.test(url.hostname));
+  if (!url || url.protocol !== 'https:' || !hostIsSupported) {
     setStatus('Open a supported video tab — the speed is saved and applied there.');
     return;
   }

@@ -10,7 +10,9 @@ The sites it runs on are whatever host patterns are declared in
 outside those patterns is touched.
 
 It is meant for local, personal use and is not published on the Chrome Web Store.
-**Tested only on Prime Video**. If you want to use it on other streamings, modify <manifest.json> and <popup.js>
+Out of the box it runs on **Prime Video** and **Disney+**. To use it on another streaming site,
+add the site's host pattern to [manifest.json](manifest.json) and [popup/popup.js](popup/popup.js)
+as described under [Customising](#customising).
 
 ## Features
 
@@ -98,7 +100,7 @@ instead of staying inert until the page is reloaded.
   if a preset breaks that rule.
 - **Add or change the sites it runs on**: add the pattern to both `host_permissions` and the
   content script `matches` array in [manifest.json](manifest.json), and add the matching hostname
-  to the `SUPPORTED_HOST` regex in [popup/popup.js](popup/popup.js) so the popup reports on those
+  to the `SUPPORTED_HOSTS` array in [popup/popup.js](popup/popup.js) so the popup reports on those
   tabs too. Then reload the extension; Chrome will ask you to approve the new host permission.
   Note that playback on a different origin — even the same company's other domain — is a separate
   host pattern.
