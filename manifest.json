@@ -1,10 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Playback Speed Slider",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Control video playback speed from 0.1x to 4.0x with a slider.",
-  "permissions": ["storage", "scripting"],
-  "host_permissions": ["https://*.primevideo.com/*", "https://*.disneyplus.com/*"],
+  "permissions": ["storage", "scripting", "activeTab"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": false
+  },
   "action": {
     "default_title": "Playback Speed Slider",
     "default_popup": "popup/popup.html",
@@ -20,13 +27,5 @@
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-  "content_scripts": [
-    {
-      "matches": ["https://*.primevideo.com/*", "https://*.disneyplus.com/*"],
-      "js": ["shared/rate.js", "content.js"],
-      "all_frames": true,
-      "run_at": "document_idle"
-    }
-  ]
+  }
 }

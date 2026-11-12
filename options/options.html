@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Playback Speed Slider options</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="page">
+      <h1 class="title">Sites</h1>
+      <p class="intro">
+        The slider only works on the sites listed here, and only once Chrome has granted
+        access to them. Prime Video and Disney+ are on the list to begin with; both can
+        be removed like any other site.
+      </p>
+
+      <form id="add-form" class="add">
+        <label class="add-label" for="site-input">Add a site</label>
+        <div class="add-row">
+          <input
+            id="site-input"
+            class="add-input"
+            type="text"
+            placeholder="example.com or https://video.example.com/watch"
+            autocomplete="off"
+            spellcheck="false"
+            aria-describedby="add-hint"
+          />
+          <button id="add-button" class="button primary" type="submit">Add</button>
+        </div>
+        <p id="add-hint" class="hint">
+          A site is added with its subdomains, so <code>example.com</code> also covers
+          <code>video.example.com</code>.
+        </p>
+      </form>
+
+      <p id="message" class="message" role="status" hidden></p>
+
+      <div class="list-header">
+        <h2 class="subtitle">Listed sites</h2>
+        <button id="grant-all" class="button primary" type="button" hidden>
+          Grant access to all
+        </button>
+      </div>
+      <ul id="site-list" class="sites"></ul>
+
+      <p class="footnote">
+        Granted sites also appear under <strong>Site access</strong> on this
+        extension&rsquo;s card in <code>chrome://extensions</code>, where access can be
+        revoked again; the site stays on this list, waiting to be granted. Pages that
+        were already open when access was granted keep running without the slider until
+        they are reloaded.
+      </p>
+    </main>
+
+    <script src="../shared/sites.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>
