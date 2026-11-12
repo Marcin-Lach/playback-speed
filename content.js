@@ -6,25 +6,40 @@
 // The single source of truth is chrome.storage.local, which means:
 //   * the popup only has to write the new value, and
 //   * every frame in every matching tab picks it up through storage.onChanged.
+//
+// Storage is also how this script learns that it should stop. Chrome does not unload a
+// content script when the host permission it was injected under is revoked: the script
+// keeps running, with its listeners attached, until the page navigates. A tab left open
+// across a removal would otherwise go on applying the speed to a site the extension is
+// no longer allowed to touch, and the popup — which checks the permission properly —
+// would correctly show itself as disabled while the page carried on regardless. So the
+// service worker publishes the patterns that are currently active, and this script
+// shuts itself down when its own frame is no longer covered by them.
 (() => {
   const ALREADY_LOADED_FLAG = '__playbackSpeedSliderLoaded';
 
   // The popup re-injects this file to cover tabs that were already open when the
   // extension was installed or reloaded, so guard against running twice. The flag is
   // claimed at the bottom of this file and only once start() has succeeded, so a frame
-  // that failed to start stays eligible for a retry on the next injection.
+  // that failed to start stays eligible for a retry on the next injection. shutDown()
+  // gives it back, so a site that is enabled again can be picked up by the next
+  // injection without a page reload.
   if (window[ALREADY_LOADED_FLAG]) {
     return;
   }
 
   const rateApi = globalThis.PlaybackSpeedRate;
-  if (!rateApi) {
-    // shared/rate.js is injected alongside this file; without it there is no range to
-    // clamp against. Returning without claiming the flag leaves the retry open.
-    console.debug('[Playback Speed Slider] shared/rate.js is missing; not starting.');
+  const sitesApi = globalThis.PlaybackSpeedSites;
+  if (!rateApi || !sitesApi) {
+    // shared/rate.js and shared/sites.js are injected alongside this file; without the
+    // first there is no range to clamp against, and without the second no way to tell
+    // whether this frame is still covered. Returning without claiming the flag leaves
+    // the retry open.
+    console.debug('[Playback Speed Slider] shared scripts are missing; not starting.');
     return;
   }
   const { DEFAULT_RATE, normalizeRate } = rateApi;
+  const { ACTIVE_KEY, patternCoversHost } = sitesApi;
 
   const STORAGE_KEY = 'playbackRate';
 
@@ -55,11 +70,17 @@
 
   let desiredRate = DEFAULT_RATE;
   let scanScheduled = false;
-  // Set when start() rolls itself back, so callbacks already in flight become no-ops
-  // instead of racing the replacement instance that the next injection creates.
+  // Set when start() rolls itself back, and when this frame stops being covered, so
+  // callbacks already in flight become no-ops instead of racing the replacement
+  // instance that the next injection creates.
   let disposed = false;
-  const trackedVideos = new WeakSet();
+  // The listener attached to each video, kept so it can be taken off again. A WeakMap
+  // rather than a list: a video removed from the document should not be held alive by
+  // this script.
+  const videoHandlers = new WeakMap();
   const writeBudgets = new WeakMap();
+  // Everything start() registered, in the order it was registered.
+  const undoAll = [];
 
   /** Takes one write from this video's budget for the current window, if any is left. */
   function claimWrite(video) {
@@ -86,6 +107,9 @@
   }
 
   function applyRate(video) {
+    if (disposed) {
+      return;
+    }
     try {
       const rateIsStale = Math.abs(video.playbackRate - desiredRate) > RATE_EPSILON;
       // defaultPlaybackRate makes the rate survive some of the player's own resets.
@@ -115,13 +139,25 @@
   }
 
   function trackVideo(video) {
-    if (trackedVideos.has(video)) {
+    if (videoHandlers.has(video)) {
       return;
     }
-    trackedVideos.add(video);
+    const handler = () => applyRate(video);
+    videoHandlers.set(video, handler);
     for (const eventName of REAPPLY_EVENTS) {
-      video.addEventListener(eventName, () => applyRate(video));
+      video.addEventListener(eventName, handler);
     }
+  }
+
+  function untrackVideo(video) {
+    const handler = videoHandlers.get(video);
+    if (!handler) {
+      return;
+    }
+    for (const eventName of REAPPLY_EVENTS) {
+      video.removeEventListener(eventName, handler);
+    }
+    videoHandlers.delete(video);
   }
 
   function applyToAllVideos() {
@@ -132,6 +168,76 @@
       trackVideo(video);
       applyRate(video);
     }
+  }
+
+  /**
+   * Lets go of every video in this frame and puts its speed back to normal.
+   *
+   * Leaving the last rate in place would strand the user: the popup is disabled on a
+   * site the extension may not touch, so there would be no way to put a title that is
+   * stuck at 2.5x back to normal short of reloading it. Undoing our own change is also
+   * the smallest footprint to leave behind on a page we are no longer allowed to act
+   * on.
+   */
+  function releaseVideos() {
+    for (const video of document.querySelectorAll('video')) {
+      untrackVideo(video);
+      try {
+        if (Math.abs(video.playbackRate - DEFAULT_RATE) > RATE_EPSILON) {
+          video.playbackRate = DEFAULT_RATE;
+        }
+        if (Math.abs(video.defaultPlaybackRate - DEFAULT_RATE) > RATE_EPSILON) {
+          video.defaultPlaybackRate = DEFAULT_RATE;
+        }
+      } catch (error) {
+        console.debug('[Playback Speed Slider] could not reset a video:', error);
+      }
+    }
+  }
+
+  /** Unregisters everything, in the reverse of the order it was registered. */
+  function undoRegistrations() {
+    for (const undo of undoAll.reverse()) {
+      try {
+        undo();
+      } catch (undoError) {
+        console.debug('[Playback Speed Slider] cleanup failed:', undoError);
+      }
+    }
+    undoAll.length = 0;
+  }
+
+  /**
+   * Stops for good: no more listeners, no more writes, and the videos handed back.
+   *
+   * The loaded flag is given up as well, so that enabling the site again and reopening
+   * the popup — which re-injects this file — starts a fresh instance in this same page
+   * instead of returning early forever.
+   */
+  function shutDown(reason) {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    undoRegistrations();
+    releaseVideos();
+    delete window[ALREADY_LOADED_FLAG];
+    console.debug(`[Playback Speed Slider] stopped in this frame: ${reason}`);
+  }
+
+  /**
+   * Whether this frame is still covered by the active patterns.
+   *
+   * A missing mirror means the service worker has not published one yet, not that
+   * nothing is active: this frame was injected, which means Chrome had a permission for
+   * it, so the benefit of the doubt goes to carrying on. An empty array is an answer,
+   * and the answer is no.
+   */
+  function coversThisFrame(patterns) {
+    if (!Array.isArray(patterns)) {
+      return true;
+    }
+    return patterns.some((pattern) => patternCoversHost(pattern, location.hostname));
   }
 
   // The player's DOM mutates constantly, so coalesce mutation bursts into one
@@ -151,11 +257,16 @@
   // frame left half-registered would keep reacting to events with no rate to apply, and
   // the retry that follows would double up the listeners it did manage to attach.
   function start() {
-    const undoAll = [];
-
     try {
       const onStorageChanged = (changes, areaName) => {
-        if (areaName !== 'local' || !changes[STORAGE_KEY]) {
+        if (areaName !== 'local') {
+          return;
+        }
+        if (changes[ACTIVE_KEY] && !coversThisFrame(changes[ACTIVE_KEY].newValue)) {
+          shutDown('this site is no longer enabled');
+          return;
+        }
+        if (!changes[STORAGE_KEY]) {
           return;
         }
         desiredRate = normalizeRate(changes[STORAGE_KEY].newValue);
@@ -175,9 +286,9 @@
       document.addEventListener('play', scheduleScan, true);
       undoAll.push(() => document.removeEventListener('play', scheduleScan, true));
 
-      // Read the stored rate only once the listener above is in place, so a change that
-      // lands while startup is still running is not missed.
-      chrome.storage.local.get({ [STORAGE_KEY]: DEFAULT_RATE }, (stored) => {
+      // Read the stored state only once the listener above is in place, so a change
+      // that lands while startup is still running is not missed.
+      chrome.storage.local.get({ [STORAGE_KEY]: DEFAULT_RATE, [ACTIVE_KEY]: null }, (stored) => {
         if (disposed) {
           return;
         }
@@ -188,27 +299,30 @@
           );
           return;
         }
+        // Covers the tab that was open across a removal and then injected again, and
+        // the frame whose site was removed while this read was in flight.
+        if (!coversThisFrame(stored[ACTIVE_KEY])) {
+          shutDown('this site is not enabled');
+          return;
+        }
         desiredRate = normalizeRate(stored[STORAGE_KEY]);
         applyToAllVideos();
       });
     } catch (error) {
       disposed = true;
-      for (const undo of undoAll.reverse()) {
-        try {
-          undo();
-        } catch (undoError) {
-          console.debug('[Playback Speed Slider] cleanup failed:', undoError);
-        }
-      }
+      undoRegistrations();
       throw error;
     }
   }
 
   try {
     start();
-    // Claimed only now. A frame that threw above is left exactly as it was found, so the
-    // next injection from the popup gets to try again instead of returning early forever.
-    window[ALREADY_LOADED_FLAG] = true;
+    // Claimed only now, and only if startup did not already stop. A frame that threw
+    // above is left exactly as it was found, so the next injection from the popup gets
+    // to try again instead of returning early forever.
+    if (!disposed) {
+      window[ALREADY_LOADED_FLAG] = true;
+    }
   } catch (error) {
     // Happens when the extension is reloaded and this frame's context is orphaned. The
     // freshly injected copy takes over, so there is nothing to recover here.

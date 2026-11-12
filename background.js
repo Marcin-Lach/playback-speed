@@ -14,7 +14,7 @@
 importScripts('shared/sites.js');
 
 const DYNAMIC_SCRIPT_ID = 'user-sites';
-const CONTENT_SCRIPT_FILES = ['shared/rate.js', 'content.js'];
+const CONTENT_SCRIPT_FILES = ['shared/rate.js', 'shared/sites.js', 'content.js'];
 
 // Serialises the syncs. A permission change can land while a storage change is still
 // being handled, and two concurrent passes would both see the pre-change registration
@@ -50,6 +50,23 @@ async function reconcileListWithGrants(sites, grantedOrigins) {
   return next;
 }
 
+/**
+ * Mirrors the active patterns into storage for the content scripts to read.
+ *
+ * Written only when it actually changes: every frame of every controlled tab wakes on
+ * a storage change, and a worker that re-syncs for an unrelated reason should not make
+ * them all re-evaluate for nothing.
+ */
+async function publishActivePatterns(patterns) {
+  const key = PlaybackSpeedSites.ACTIVE_KEY;
+  const stored = await chrome.storage.local.get({ [key]: null });
+  const current = Array.isArray(stored[key]) ? stored[key] : null;
+  if (current && current.length === patterns.length && current.every((p, i) => p === patterns[i])) {
+    return;
+  }
+  await chrome.storage.local.set({ [key]: patterns });
+}
+
 async function syncDynamicContentScripts() {
   const granted = await chrome.permissions.getAll();
   const grantedOrigins = granted.origins ?? [];
@@ -65,6 +82,13 @@ async function syncDynamicContentScripts() {
   // when the permission removal happens to land.
   const grantedSet = new Set(grantedOrigins);
   const matches = sites.filter((pattern) => grantedSet.has(pattern));
+
+  // Published before the registration is touched. Unregistering stops future
+  // injections, but it does nothing to the content scripts already running in open
+  // tabs — Chrome leaves those alone until the page navigates — so they have to be
+  // told, and this is the only channel a content script can read.
+  await publishActivePatterns(matches);
+
   const existing = await registeredDynamicScript();
 
   if (matches.length === 0) {

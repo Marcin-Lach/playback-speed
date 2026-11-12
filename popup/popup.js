@@ -12,9 +12,9 @@ const { patternForUrl, exactPatternForUrl, hostLabel, listedPatternForHost, read
 
 const STORAGE_KEY = 'playbackRate';
 const WRITE_DEBOUNCE_MS = 80;
-// Injected together and in this order: content.js reads the shared range from the first
-// file, so it cannot be injected on its own.
-const CONTENT_SCRIPT_FILES = ['shared/rate.js', 'content.js'];
+// Injected together and in this order: content.js reads the shared range and the site
+// matching from the first two files, so it cannot be injected on its own.
+const CONTENT_SCRIPT_FILES = ['shared/rate.js', 'shared/sites.js', 'content.js'];
 
 const slider = document.getElementById('rate-slider');
 const readout = document.getElementById('rate-readout');

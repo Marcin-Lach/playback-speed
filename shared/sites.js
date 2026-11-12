@@ -27,6 +27,17 @@
 
   const SITES_KEY = 'sites';
 
+  // Where the service worker mirrors the patterns that are currently both listed and
+  // granted, so that a content script can tell whether it is still allowed to act.
+  //
+  // Revoking a host permission does not unload a content script Chrome has already
+  // injected: it keeps its listeners, and its storage access, until the page navigates.
+  // A content script cannot ask chrome.permissions anything either — that API is not
+  // exposed to it. Reading this mirror is how an already-running frame finds out that
+  // its site was removed, so it can stop instead of going on applying the rate to a
+  // page the extension is no longer allowed to touch.
+  const ACTIVE_KEY = 'activePatterns';
+
   // What the list starts out as. Seeded once, on the first run that finds no list at
   // all; removing one is permanent, because the seed never runs again afterwards.
   const DEFAULT_SITE_PATTERNS = [
@@ -184,6 +195,7 @@
   globalThis.PlaybackSpeedSites = {
     SCHEME,
     SITES_KEY,
+    ACTIVE_KEY,
     DEFAULT_SITE_PATTERNS,
     hostFromInput,
     patternForHost,

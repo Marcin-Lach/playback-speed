@@ -31,6 +31,8 @@ required host permissions at all, so there is nothing Chrome refuses to let go o
 - Preset buttons for the speeds you actually use: 0.5×, 1×, 1.25×, 1.5×, 1.75×, 2×, 2.5×, 3×.
 - **Add any site from the popup.** On a site that is not enabled yet, the popup offers a button
   to enable it, then a button to reload the page so the slider takes effect.
+- **Removing a site takes effect in tabs that are already open.** The frames stop, hand back
+  their videos at 1×, and go quiet, rather than carrying on until the page is reloaded.
 - **The slider is disabled on sites the extension may not touch**, so a control that would do
   nothing never looks live. It stays enabled on ordinary tabs, where changing the speed still
   reaches the enabled tabs you have open.
@@ -150,8 +152,17 @@ extension adds anything it finds granted but unlisted to the list.
 | `options/options.html` / `.css` / `.js` | The site list: add, grant, remove, and see what is granted. |
 | `icons/` | Toolbar icons at 16/32/48/128 px. |
 
-`chrome.storage.local` holds two things: `playbackRate`, the single source of truth for the speed,
-and `sites`, the list. The popup only writes the rate; every content script listens with
+`chrome.storage.local` holds three things: `playbackRate`, the single source of truth for the
+speed; `sites`, the list; and `activePatterns`, which the service worker rewrites on every sync
+with the patterns that are currently both listed and granted.
+
+That third key exists because of a Chrome behaviour that is easy to miss: **revoking a host
+permission does not stop a content script that is already running.** It keeps its listeners, and
+its access to extension storage, until the page navigates. A content script cannot ask
+`chrome.permissions` anything either — that API is not exposed to it. So `activePatterns` is the
+channel: every injected frame watches it, and one that is no longer covered unregisters its
+listeners, resets its videos to 1×, and gives up its loaded flag so a later injection can start it
+again without a page reload. The popup only writes the rate; every content script listens with
 `chrome.storage.onChanged` and applies the new value, which keeps all frames and all tabs in sync
 without any tab-to-tab messaging.
 
@@ -209,6 +220,14 @@ Changes to `content.js` only reach already-open tabs when you reopen the popup o
 Earlier versions declared them as required host permissions. They are now ordinary list entries,
 and Chrome dropped the old grants when the manifest stopped requiring them. Open the options page
 and click **Grant access to all** once.
+
+**I removed a site, but a tab that was already open keeps playing at the chosen speed.**
+Chrome does not unload a content script when the permission it was injected under is revoked —
+the script stays in that page, with its listeners, until the page navigates. The extension now
+handles this itself: the service worker publishes the active sites to `chrome.storage.local`, and
+a frame that is no longer covered stops, releases its videos, and puts their speed back to 1×. A
+tab that was open from *before this version was installed* is still running the old script, which
+has no such logic; reload it once.
 
 **I removed a site, but the popup still shows a slider on it.**
 That is the popup's own UI, not a leftover of the removed site. The slider is always on screen
