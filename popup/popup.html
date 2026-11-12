@@ -46,14 +46,14 @@
     </div>
 
     <!--
-      The site section below the controls. The slider itself stays usable whatever this
-      says, because the rate is one global setting rather than a per-site one; this only
-      reports whether the active tab is a site the extension is allowed to touch, and
-      offers the one action that would change that.
+      One row per origin this page draws video from: the page itself, plus every
+      embedded player, which lives in its own document and so needs its own permission.
+      The speed is one setting for the whole page, but Chrome decides what may be
+      touched per frame, which is why this is a list rather than a single switch.
     -->
-    <section class="site" aria-label="This site">
+    <section class="frames" aria-label="Video sources on this page">
       <p id="status" class="status" role="status">Checking this tab&hellip;</p>
-      <button id="enable-site" class="action primary" type="button" hidden></button>
+      <ul id="frame-list" class="origins"></ul>
       <button id="reload-tab" class="action" type="button" hidden>Reload page</button>
     </section>
 

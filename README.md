@@ -31,6 +31,10 @@ required host permissions at all, so there is nothing Chrome refuses to let go o
 - Preset buttons for the speeds you actually use: 0.5×, 1×, 1.25×, 1.5×, 1.75×, 2×, 2.5×, 3×.
 - **Add any site from the popup.** On a site that is not enabled yet, the popup offers a button
   to enable it, then a button to reload the page so the slider takes effect.
+- **Embedded players are found for you.** The popup lists every origin the page draws video
+  from — the page itself and each embedded player, such as `player.vimeo.com` — with an
+  **Enable** button on the ones that are not allowed yet, and a ▶ against the one that is
+  actually playing.
 - **Removing a site takes effect in tabs that are already open.** The frames stop, hand back
   their videos at 1×, and go quiet, rather than carrying on until the page is reloaded.
 - **The slider is disabled on sites the extension may not touch**, so a control that would do
@@ -139,6 +143,42 @@ and access can be revoked there. The options page notices: the site stays listed
 turns back into a **Grant** button. Granting a site from Chrome's own UI works too — the
 extension adds anything it finds granted but unlisted to the list.
 
+## Embedded players
+
+A page is not one thing. When a site embeds a player — `xyzasd.com` showing a video from
+`player.vimeo.com` — the `<video>` lives in the player's own document, on its own origin.
+Chrome decides what an extension may touch per frame, so a permission for the page says
+nothing about the player: enabling `xyzasd.com` alone leaves the slider doing nothing, and
+there is no way around that. `activeTab` does not bridge it either, since it covers the top
+frame and same-origin children only.
+
+So the popup lists **every origin the page draws video from**, one row each:
+
+| | |
+| --- | --- |
+| ▶ | playing right now — this is the origin that matters |
+| ⏸ | has a video, not playing |
+| · | enabled, but no video in that frame |
+| ? | not enabled, so its videos cannot be seen from here |
+| ! | enabled, but the frame was not reachable — reload the page |
+
+The row for the page itself is marked `page`. Rows that are not enabled carry an **Enable**
+button (or **Grant**, when the site is already on the list and only the permission is
+missing). Enabling the row with the ▶ against it is usually all that is needed — the page's
+own origin often has no video at all and never has to be enabled.
+
+Finding the embeds costs no permission. The popup probes the frames it may already touch and
+reads the `src` of the iframes it finds there; reading a child frame's `src` attribute is a
+read of the parent's own DOM, so an embed is discoverable long before anything may run inside
+it. What cannot be seen without permission is what is *inside* an embed, which is why an
+unenabled row shows `?` rather than a video count.
+
+The speed itself stays a single setting. Once an origin is enabled, every video in every one
+of its frames follows the slider, so one control covers the whole page.
+
+The ▶ marker is also there for later: the site list accumulates player origins, and it tells
+you which ones a page actually used when you come back to prune them.
+
 ## How it works
 
 | File | Role |
@@ -148,7 +188,7 @@ extension adds anything it finds granted but unlisted to the list.
 | `shared/sites.js` | The site list: the seeded defaults, reading and writing `chrome.storage.local`, turning what a human typed into a match pattern, and matching a pattern against a hostname. Used by the popup, the options page, and the service worker. |
 | `background.js` | Service worker. Registers and unregisters the content script for the sites that are both listed and granted, and reconciles the list with Chrome's permissions. |
 | `content.js` | Injected into every enabled frame. Applies the stored rate to all `<video>` elements, tracks new ones with a `MutationObserver`, and re-applies on media events. |
-| `popup/popup.html` / `.css` / `.js` | The slider UI, plus the per-site state: enable this site, grant it, reload the page, or report how many videos the tab has. |
+| `popup/popup.html` / `.css` / `.js` | The slider UI, plus one row per origin the page draws video from: enable or grant each one, reload when a frame needs it, and report what is playing. |
 | `options/options.html` / `.css` / `.js` | The site list: add, grant, remove, and see what is granted. |
 | `icons/` | Toolbar icons at 16/32/48/128 px. |
 
@@ -237,6 +277,12 @@ needed**: removing a site revokes the permission and re-registers the content sc
 immediately, so the next page load on that site runs nothing. If the slider there is still
 *usable* rather than greyed out, that is a bug — the extension was not reloaded after an update,
 so press the reload arrow on its card in `chrome://extensions`.
+
+**I enabled the site but the video still ignores the slider.**
+The video is probably an embed. Open the popup and look at the list: the row with ▶ against it
+is the origin actually playing, and if it has an **Enable** button it is not allowed yet.
+Enabling the page's own origin does nothing for a player on another origin — see
+[Embedded players](#embedded-players).
 
 **The popup says "No video on this tab yet."**
 Playback hasn't created the `<video>` element yet, or you are on a browse page rather than a

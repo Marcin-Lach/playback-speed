@@ -96,9 +96,18 @@
    * the page from one subdomain and the player from another, and a user who had to come
    * back and add the second one would reasonably call that broken.
    */
-  function patternForUrl(url) {
-    const host = hostFromInput(url?.hostname?.replace(/^www\./, ''));
+  function patternForHostname(hostname) {
+    const host = hostFromInput(String(hostname ?? '').replace(/^www\./, ''));
     return host ? patternForHost(host) : null;
+  }
+
+  function patternForUrl(url) {
+    return patternForHostname(url?.hostname);
+  }
+
+  /** The narrowest pattern that covers exactly one hostname, for permission checks. */
+  function exactPatternForHostname(hostname) {
+    return `${SCHEME}://${hostname}/*`;
   }
 
   /**
@@ -199,7 +208,9 @@
     DEFAULT_SITE_PATTERNS,
     hostFromInput,
     patternForHost,
+    patternForHostname,
     patternForUrl,
+    exactPatternForHostname,
     exactPatternForUrl,
     hostLabel,
     coversSubdomains,
