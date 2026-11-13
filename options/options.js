@@ -42,7 +42,9 @@ function setMessage(text, tone = 'info') {
 }
 
 function describe(pattern, granted) {
-  const scope = coversSubdomains(pattern) ? 'this site and its subdomains' : 'this site only';
+  // New entries are one exact host. A `*.` entry can only be one granted by an earlier
+  // version, so it is worth naming rather than showing as if it were the same thing.
+  const scope = coversSubdomains(pattern) ? 'this host and its subdomains' : 'this host only';
   return granted
     ? `Granted — ${scope}`
     : `Not granted yet — ${scope} once you allow it`;

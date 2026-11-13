@@ -46,8 +46,9 @@ required host permissions at all, so there is nothing Chrome refuses to let go o
 - **Prime Video and Disney+ are defaults, not special cases.** They are the initial contents of
   the list and nothing in the code treats them differently; remove either one and it stays
   removed.
-- A site is added together with its subdomains, so adding `vodservice.com` also covers
-  `video.vodservice.com`.
+- **One exact host per entry.** `vodservice.com` does not cover `www.vodservice.com` or
+  `video.vodservice.com` — the popup lists whichever host is actually playing, so there is
+  nothing to guess at and no permission granted wider than what was asked for.
 - The chosen speed is **remembered** and applied to every enabled tab, including new ones and
   the next title you start.
 - **Survives player resets.** Players typically set `playbackRate` back to 1 when they swap the
@@ -132,11 +133,15 @@ from the extension's **Details → Extension options**.
   pre-listed sites as well — they are seeded once, on the first run that finds no list at all, and
   are never seeded again, so removing one is permanent.
 
-A site is always listed as *the host and its subdomains*. Adding from the popup drops a leading
-`www.` first, so enabling from `https://www.example.com` also covers `player.example.com` — sites
-routinely serve the page from one host and the player from another. Adding
-`video.vodservice.com` explicitly covers that host and anything below it, but **not**
-`vodservice.com` itself; add the shorter name if you want the whole site.
+A site is listed as **one exact host**. `example.com`, `www.example.com` and
+`player.example.com` are three separate entries, and enabling one says nothing about the others.
+That is deliberate: earlier versions added `*.` to everything on the theory that a user enabling
+`example.com` would also want whatever subdomain the player lived on, but the popup now lists
+every host a page plays video from, so the one that needs enabling is on screen and nothing has
+to be widened on a guess.
+
+Entries granted by an earlier version keep their `*.` and keep working; the options page labels
+them *this host and its subdomains* so they are distinguishable from the exact ones.
 
 Granted sites also appear under **Site access** on the extension's card in `chrome://extensions`,
 and access can be revoked there. The options page notices: the site stays listed, and its row
@@ -255,6 +260,12 @@ After editing any file, press the reload arrow on the extension's card in `chrom
 Changes to `content.js` only reach already-open tabs when you reopen the popup or reload the tab.
 
 ## Troubleshooting
+
+**The popup is stuck on "Checking this tab…" with the controls still live.**
+Fixed in 1.3.0. A frame with no hostname — an `about:blank` or `srcdoc` iframe, which pages
+carry routinely — made the popup build an invalid permission pattern, and the resulting
+rejection killed the refresh before it could say anything. Reload the extension on
+`chrome://extensions`. If a popup ever fails now it says so and offers a reload.
 
 **After updating, Prime Video and Disney+ stopped working.**
 Earlier versions declared them as required host permissions. They are now ordinary list entries,

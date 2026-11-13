@@ -23,6 +23,17 @@
   // keeping the scheme fixed means a pattern can never be widened by accident through
   // an http:// entry that also matches nothing useful.
   const SCHEME = 'https';
+
+  // Patterns are written for one exact host. Earlier versions added `*.` to every
+  // entry, on the theory that a user who enabled example.com would also want
+  // player.example.com without having to know it existed. The popup now lists every
+  // origin a page draws video from, so there is nothing left to guess at: the host that
+  // needs enabling is on screen, and widening a permission past what was asked for
+  // buys nothing.
+  //
+  // Patterns already granted with `*.` keep working — matching still understands them,
+  // and the options page labels them — so an install from an earlier version is not
+  // quietly narrowed behind the user's back.
   const SUBDOMAIN_PREFIX = '*.';
 
   const SITES_KEY = 'sites';
@@ -40,9 +51,12 @@
 
   // What the list starts out as. Seeded once, on the first run that finds no list at
   // all; removing one is permanent, because the seed never runs again afterwards.
+  // The www hosts, because that is where both players actually serve from; the bare
+  // domains only redirect there. If a redirect ever lands somewhere else, the popup
+  // lists that host with a button next to it.
   const DEFAULT_SITE_PATTERNS = [
-    'https://*.primevideo.com/*',
-    'https://*.disneyplus.com/*',
+    'https://www.primevideo.com/*',
+    'https://www.disneyplus.com/*',
   ];
 
   // At least two dot-separated labels, so that a stray word or a single-label intranet
@@ -83,39 +97,27 @@
     return value;
   }
 
-  /** The pattern stored for a host: the host itself and everything under it. */
+  /** The pattern for one exact host. Assumes the host has already been validated. */
   function patternForHost(host) {
-    return `${SCHEME}://${SUBDOMAIN_PREFIX}${host}/*`;
+    return `${SCHEME}://${host}/*`;
   }
 
   /**
-   * The pattern to add for a page the user is looking at.
+   * The pattern for a hostname, or null if it cannot be one.
    *
-   * A leading `www.` is dropped first, so enabling the extension from
-   * https://www.example.com/watch covers player.example.com too. Sites routinely serve
-   * the page from one subdomain and the player from another, and a user who had to come
-   * back and add the second one would reasonably call that broken.
+   * Null is the answer for every host Chrome would not accept in a match pattern — an
+   * empty one most of all. A frame showing about:blank, a srcdoc frame, or a blob:
+   * document reports an empty hostname, and pages carry those routinely: every YouTube
+   * watch page has an about:blank iframe. Building a pattern from one produced
+   * "https:///*", which chrome.permissions rejects rather than answering, and the
+   * rejection took the whole popup down with it.
+   *
+   * A leading www is kept. A pattern is one exact host now, so dropping it would ask
+   * for a permission that does not cover the page it was asked for.
    */
   function patternForHostname(hostname) {
-    const host = hostFromInput(String(hostname ?? '').replace(/^www\./, ''));
+    const host = hostFromInput(hostname);
     return host ? patternForHost(host) : null;
-  }
-
-  function patternForUrl(url) {
-    return patternForHostname(url?.hostname);
-  }
-
-  /** The narrowest pattern that covers exactly one hostname, for permission checks. */
-  function exactPatternForHostname(hostname) {
-    return `${SCHEME}://${hostname}/*`;
-  }
-
-  /**
-   * The narrowest pattern that covers exactly one page's origin, for asking Chrome
-   * whether this specific page is already covered by anything that has been granted.
-   */
-  function exactPatternForUrl(url) {
-    return `${url.protocol}//${url.hostname}/*`;
   }
 
   /** "https://*.example.com/*" -> "example.com", for display. */
@@ -209,9 +211,6 @@
     hostFromInput,
     patternForHost,
     patternForHostname,
-    patternForUrl,
-    exactPatternForHostname,
-    exactPatternForUrl,
     hostLabel,
     coversSubdomains,
     patternCoversHost,

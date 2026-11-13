@@ -13,7 +13,7 @@
 // attribute is a read of the parent's own DOM, so an embed is discoverable long before
 // anything is allowed to run inside it.
 const { MIN_RATE, MAX_RATE, RATE_STEP, DEFAULT_RATE, normalizeRate } = globalThis.PlaybackSpeedRate;
-const { patternForHostname, exactPatternForHostname, hostLabel, listedPatternForHost, readSites } =
+const { patternForHostname, hostLabel, listedPatternForHost, readSites } =
   globalThis.PlaybackSpeedSites;
 
 const STORAGE_KEY = 'playbackRate';
@@ -199,6 +199,13 @@ function collectOrigins(frames) {
   const byHost = new Map();
 
   const entry = (host) => {
+    // A frame showing about:blank or srcdoc, or a blob: document, reports an empty
+    // hostname. It can never be enabled, so it has no row to show and no permission to
+    // check — and a pattern built from it is malformed, which chrome.permissions
+    // rejects rather than answering.
+    if (!patternForHostname(host)) {
+      return null;
+    }
     let found = byHost.get(host);
     if (!found) {
       found = {
@@ -217,6 +224,9 @@ function collectOrigins(frames) {
 
   for (const frame of frames) {
     const found = entry(frame.host);
+    if (!found) {
+      continue;
+    }
     found.reached = true;
     found.isTop ||= frame.isTop;
     found.videoCount += frame.videoCount;
@@ -241,14 +251,17 @@ async function describeOrigins(origins) {
   const sites = await readSites();
   await Promise.all(
     origins.map(async (origin) => {
-      origin.granted = await chrome.permissions.contains({
-        origins: [exactPatternForHostname(origin.host)],
-      });
+      // collectOrigins has already thrown out anything that cannot be a pattern, so
+      // this is safe to ask Chrome about.
+      const exact = patternForHostname(origin.host);
+      // True for a legacy `*.` grant covering this host as well, since Chrome answers
+      // on containment rather than on an exact string match.
+      origin.granted = await chrome.permissions.contains({ origins: [exact] });
       const listed = listedPatternForHost(sites, origin.host);
       origin.listedPattern = listed;
       // Asking again for a site already on the list means asking for the pattern it is
       // listed under, not adding a second entry for the same site.
-      origin.requestPattern = listed ?? patternForHostname(origin.host);
+      origin.requestPattern = listed ?? exact;
     })
   );
 
@@ -365,13 +378,31 @@ function summarise(origins) {
 }
 
 /**
+ * Renders the popup's view of the active tab, and never rejects.
+ */
+async function refreshSiteState() {
+  try {
+    await renderSiteState();
+  } catch (error) {
+    // Every path out of renderSiteState is supposed to leave the popup saying
+    // something. One that throws instead used to leave it exactly as the HTML shipped
+    // it — "Checking this tab…" above live controls that did nothing — which reads as a
+    // frozen extension rather than as a failure. Whatever went wrong, say so.
+    console.debug('[Playback Speed Slider] could not inspect this tab:', error);
+    setStatus('Could not inspect this tab. Reload the page and try again.', 'warn');
+    setControlsEnabled(false);
+    reloadButton.hidden = false;
+  }
+}
+
+/**
  * Works out what this popup should say about the active tab, and what it should offer.
  *
  * The slider follows whether *any* frame here is controlled, not whether the top one
  * is. On a page whose player is an embed, the page itself may never be enabled and
  * never need to be.
  */
-async function refreshSiteState() {
+async function renderSiteState() {
   activeTabId = null;
   frameList.replaceChildren();
   reloadButton.hidden = true;
